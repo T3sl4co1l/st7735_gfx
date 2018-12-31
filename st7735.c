@@ -231,9 +231,9 @@ void writePixel(uint16_t c) {
 void drawfillRectangle(uint16_t colr, uint16_t xStart, uint16_t yStart,
 				uint16_t width, uint16_t height) {
 
-	uint16_t pixels;
+	uint16_t area;
 
-	pixels = width * height;
+	area = width * height;
 
 	//	Set column (X) address start and end
 	setScreenRegion(xStart, yStart, xStart + width - 1, yStart + height - 1);
@@ -245,7 +245,7 @@ void drawfillRectangle(uint16_t colr, uint16_t xStart, uint16_t yStart,
 	do {
 		ST7735_sendByte(colr >> 8);
 		ST7735_sendByte(colr & 0xff);
-	} while (--pixels);
+	} while (--area);
 	ST7735_endTransaction();
 
 }
