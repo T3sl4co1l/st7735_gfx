@@ -123,6 +123,38 @@ void delay_ms(uint16_t ms) {
 
 }
 
+inline void ST7735_beginCommand(void) {
+	SPI_TXWAIT();
+	SPI_DC_CMD();
+	SPI_CSON();
+}
+inline void ST7735_beginData(void) {
+	SPI_TXWAIT();
+	SPI_DC_DATA();
+	SPI_CSON();
+}
+
+inline void ST7735_commandToData(void) {
+	SPI_TXWAIT();
+	SPI_DC_DATA();
+}
+
+inline void ST7735_dataToCommand(void) {
+	SPI_TXWAIT();
+	SPI_DC_CMD();
+}
+
+uint8_t ST7735_sendByte(uint8_t b) {
+	SPI_TXWAIT();
+	SPI_DATA = b;
+	return SPI_DATA;
+}
+
+inline void ST7735_endTransaction(void) {
+	SPI_TXWAIT();
+	SPI_CSOFF();
+}
+
 void ST7735_sendCommand(uint8_t cmd) {
 
 	ST7735_beginCommand();
