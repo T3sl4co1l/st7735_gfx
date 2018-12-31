@@ -1,0 +1,1140 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN"
+"http://www.w3.org/TR/html4/strict.dtd">
+<html>
+  <head>
+	<title>Image Compressor for ST7735 Display Commands</title>
+	<style type="text/css" media=all><!--
+
+body {
+	font-family: Verdana, Arial, sans-serif;
+	line-height: 130%;
+}
+
+h1 {
+	text-alignment: center;
+}
+
+canvas {
+	border: 1px solid #404040;
+}
+
+p.messagebox {
+	color: #e00000;
+}
+
+span.rect {
+	color: #d00000;
+	font-weight: bold;
+	font-size: small;
+}
+
+span.rectbm {
+	color: #48d030;
+	font-weight: bold;
+	font-size: small;
+}
+
+li {
+	padding-bottom: 0.25em;
+}
+
+div {
+	padding-bottom: 0.5em;
+	margin-left: 5%;
+	margin-right: 10%;
+}
+
+div.options {
+	line-height: 150%;
+}
+
+pre {
+	line-height: 115%;
+	background-color: #f8f8f8;
+	color: #606060;
+	border: solid 1px #000000;
+	padding: 2px;
+}
+
+pre.code {
+	width: 60em;
+	height: 20em;
+	overflow: scroll;
+	overflow-x: hidden;
+	overflow-y: scroll;
+}
+
+pre.ex {
+	margin-left: 5%;
+	margin-right: 5%;
+}
+
+input[type=file] {
+	border: 1px solid #404040;
+	padding: 4px;
+}
+
+.nyi {
+	color: #909090;
+}
+
+	--></style>
+  </head>
+  <body>
+	<h1>ST7735 Command Set Encoder</h1>
+	<div class="inputs">
+	  <p>Enter a file here:</p>
+	  <p>Warning: run time for large images (&gt; 256 &times; 256?) is awful.</p>
+	  <input type="file" id="filein">
+	  <input type="button" value="Submit" id="submit">
+	  <p class="messagebox" id="messagebox"></p>
+	</div>
+	<div class="graphics">
+	  <h2>Input Image</h2>
+	  <canvas width="100" height="100" id="image">Select an Image</canvas>
+	  <p id="inputmessage"></p>
+	  <p class="messagebox" id="inputwarning"></p>
+	</div>
+	<div class="graphics">
+	  <h2>Encoded Regions</h2>
+	  <p><span class="rect">Flat Rectangles/Lines</span> &nbsp; <span class="rectbm">Bitmapped</span></p>
+	  <canvas width="100" height="100" id="heatmap">Intermediate Steps</canvas>
+	  <p id="outputmessage"></p>
+	</div>
+	<div class="options">
+	  <h2>Output Data</h2>
+	  Format:
+	  <div>
+		<input type="radio" name="outputtype" checked>Verbose (Text)<br>
+		<input type="radio" name="outputtype">C Header<br>
+		<input type="radio" name="outputtype">Binary
+	  </div>
+	  <input type="checkbox" id="textsort">Sort flats by size (default: by color)<br>
+	  File name: <input type="text" id="filenamebox">
+	</div>
+	<div class="outputs">
+	  <pre class="code" id="output"></pre>
+	  <input type="button" value="Download" id="download" disabled>
+	</div>
+	<div class="comments">
+	  <h2>Output File Format</h2>
+	  <ul>
+		<li>Header: DWORD, equals 0x371e5453 ("ST", 7735).</li>
+		<li>Width: BYTE.  Width of the image, except for 0 &rightarrow; 256 pixels.</li>
+		<li>Height: BYTE.  Height of the image, except for 0 &rightarrow; 256 pixels.</li>
+		<li>Colors: BYTE.  Number of indexed colors (2-255) in the image, except for 0 &rightarrow; 256 colors, or 1 &rightarrow; full color (suppresses palette section; use only high-color commands).</li>
+		<li>Palette: if Colors = 1, zero bytes; else, (Colors) WORDs (Colors = 0 &rightarrow; 256 WORDs).
+		  <ul><li>Each color entry: 16 bits, 5-6-5 RGB format.</li></ul></li>
+		<li>Commands: remainder of file (until EOF, or termination command).  If EOF is reached during a command, assume zeroes for any remaining parameter bytes in that command.</li>
+		<ul>
+		  <li>0x00: No Operation.  Length: 1 byte.  No effect.</li>
+		  <li>0x01: Point From Palette.  Length: 4 bytes.  Parameters: Color (BYTE), xStart (BYTE), yStart (BYTE).  Draws a single pixel at (xStart, yStart).</li>
+		  <li>0x02: Horizontal Line From Palette.  Length: 5 bytes.  Parameters: Color (BYTE), xStart (BYTE), yStart (BYTE), Len (BYTE).  Draws a horizontal line, starting at (xStart, yStart), to the right for a total Len length.  If xStart + Len &gt; Width, only the visible segment is drawn.</li>
+		  <li>0x03: Vertical Line From Palette.  Length: 5 bytes.  Parameters: Color (BYTE), xStart (BYTE), yStart (BYTE), Len (BYTE).  Draws a vertical line, starting at (xStart, yStart), downwards for a total Len length.  If yStart + Len &gt; Height, only the visible segment is drawn.</li>
+		  <li class="nyi">0x04: Diagonal line From Palette.  Length: 6 bytes.  Parameters: Color (BYTE), xStart (BYTE), yStart (BYTE), xW (BYTE), yH (BYTE).  Draws a diagonal line (any slope).  <b>Not yet implemented.</b></li>
+		  <li>0x05: Solid Rectangle From Palette.  Length: 6 bytes.  Parameters: Color (BYTE), xStart (BYTE), yStart (BYTE), xW (BYTE), yH (BYTE).  Draws a filled rectangle (xW*yH pixels total).  If xStart + xW &gt; Width or yStart + yH &gt; Height, only the visible segment is drawn.</li>
+		  <li>0x12: Raw Bitmap Horizontal Line From Palette.  Length: 4+Len bytes.  Parameters: xStart (BYTE), yStart (BYTE), Len (BYTE), Data (BYTE dup Len).  Draws a horizontal line, starting at (xStart, yStart), to the right for a total Len length, with the specified sequence of pixels.  If xStart + Len &gt; Width, only the visible segment is drawn.</li>
+		  <li>0x13: Raw Bitmap Vertical Line From Palette.  Length: 4+Len bytes.  Parameters: xStart (BYTE), yStart (BYTE), Len (BYTE), Data (BYTE dup Len).  Draws a vertical line, starting at (xStart, yStart), downwards for a total Len length, with the specified sequence of pixels.  If yStart + Len &gt; Height, only the visible segment is drawn.</li>
+		  <li>0x15: Raw Bitmap Rectangle From Palette.  Length: 5+xW*yH bytes.  Parameters: xStart (BYTE), yStart (BYTE), xW (BYTE), yH (BYTE), Data (BYTE dup xW*yH).  Draws a rectangle (xW*yH pixels total) filled with the specified sequence of pixels.  If xStart + xW &gt; Width or yStart + yH &gt; Height, only the visible segment is drawn.</li>
+		  <li>Bitmap note: add 0x10 to command byte value to specify a bitmap command.  These commands are listed separately above for clarity.</li>
+		  <li class="nyi">High Color: add 0x40 to command byte value to specify a high color command.  Color parameter becomes WORD size (5-6-5 RGB format) (+1+Len bytes command length).  <b>Not yet implemented.</b></li>
+		  <li>0xff: Terminate. Length: 1 byte.  Finish drawing image (subsequent bytes are ignored).</li>
+		</ul>
+	  </ul>
+	  <h2>Options, Notes</h2>
+	  <p class="nyi"><b>Long format:</b> Set Header to 0x371f5354 ("ST" 7735+1).  Replace Widths, Heights and locations (xStart, yStart) with WORDs; maximum image size 65536 x 65536.  <b>Not yet implemented.</b></p>
+	  <p><b>Text format:</b> Full 24-bit color is given, exact to the original image.  The other formats use 16-bit (5-6-5 RGB); the extra bits in the original image are discarded (rounded down).</p>
+	  <p><b>C header format:</b> Header DWORD, Width and Height are #define'd.  All BYTEs are uint8_t, WORDs are uint16_t, etc.  Termination byte is obligatory, but array lengths are provided to easily calculate offsets.</p>
+	  <p>Only the header is given above; the accompanying C code to use it is as follows (as an avr-gcc ROM declaration):</p>
+<pre class="ex">
+#include "Header_Name.h"
+
+#ifdef HEADER_NAME_H_INCLUDED
+//  Place this at the top, or in the common header file:
+const uint8_t ImageData[HEADER_NAME_TOTAL_LEN];
+
+//  Reference this with: drawImage(ImageData, x, y);
+const uint8_t ImageData[] PROGMEM = {
+	(HEADER_NAME_PALETTE_LEN & 0x00ff),
+	HEADER_NAME_PAL,
+	HEADER_NAME_CMDS
+};
+#endif // HEADER_NAME_H_INCLUDED
+</pre>
+	  <p><b>Execution speed:</b> Without a locate command on the ST7735 display controller, and the set-region command being fairly lengthy, the best writing option is to fill rectangular regions.  Regions should generally be non-overlapping to avoid redraw, but some is acceptable.  Each set-region command takes 10 bytes of SPI transfers&mdash;make the most of it.  This makes drawing transparent images, diagonal lines, etc. fairly painstaking.</p>
+	  <p><b>Compression/Encoding:</b> This "compressor" tool only generates line and rectangle commands, when they are of adequate size.  Everything else is considered "random" data and expressed as bitmap regions.  This is effective on mostly-flat images&mdash;line drawings and such, and ineffective on high color images which generate mostly bitmap regions.  A hand-written image (or a much smarter encoder..) could take better advantage of the command set.</p>
+	  <p><b>Transparency</b> is implicitly part of the format: any pixels that aren't drawn by command, are left unchanged.</p>
+	  <h2>Future Improvements, Speculation</h2>
+	  <p>I would love to be wrong about the ST7735's limited command set... (On that note, it appears there is one pair of <a href="https://github.com/sumotoy/TFT_ST7735">undocumented commands</a>, but they're not very useful here.)</p>
+	  <p>Depending on implementation, palette data may not be checked for bounds.  In case of un-checked overrun, most likely some instruction data will be read as colors.  This suggests interesting opportunities for highly optimized files...</p>
+	  <p>If a few more shapes are implemented, this could become a proper vector format of sorts.  Downside: antialiasing would require a canvas (and a lot of processing), or video memory, both impractical on a small MCU.</p>
+	  <p>An RLE Bitmap Rectangle command might be nice.  This would RLE compress a given block, using a scheme similar to, say, Windows RLE.  This gives another step between encoding large flat regions, and giving up and encoding whole raw bitmap regions.  The fill-rectangle threshold would be higher, and RLE vs. raw would be decided on a per-block basis.  Alternately, RLE can be used for much, or all of, the image, simplifying the command set.</p>
+	  <p>Adding a set-color command or flag may prove useful.  In that case, the decoder sets a state variable (current color), and draws flat-colored commands in that color.  Maybe this can be switched too, so you can go back to using per-command colors on single pixel writes.  Or just use even more command slots, etc.</p>
+	  <p>A few bits could be saved by packing the Command, Len, xW and yH bytes, and maybe others.  Unused bits could be packed away, or Huffman coding used.  For larger, more complicated (high color) images, just using a zlib format is probably better.</p>
+	  <p>For the C header format, the palette could be generated as a separate array, referenced by label.  This would allow common palette(s) to be used by many images; then, the "image", as such, is just a string of commands.  Similarly, an "indirect bitmap" command could be used, which references a separate bitmap array.  This would allow patterns or sprites to be reused by many images, without incurring overhead&mdash;something of a 2D zip compression method.</p>
+	  <p>Commands could also be packed in a different way.  All draw commands except Point have the redundant information that zero width or height is a no-op.  This should probably be wrapped to 256, as done with Width and Height.  They could however be used as a flag to read one of (x, y, color) as a command byte, and that command byte is repeated going forward until changed again.  This would save significantly on command bytes, in the same way that runs of colors can save using a color-change command.  Point itself can't hold any such info, though; maybe it could be left until the end, with the remaining (x, y, color) triples assumed to be Points, and EOF is required for termination.  Header format would have to include an array length #define, or use sizeof.</p>
+	</div>
+	<script src="FileSaver.min.js"></script>
+	<script type="text/javascript"><!--
+
+var imgArray, imgMask, imgWidth, imgHeight;
+var indices, /*regions,*/ rectangles, rectangleBMs;
+var binaryOutput;
+var fileName = '';
+
+//	Binary output (bytes) vs. flat region size
+//	N	Lucidia.png		Image_Compress_Test.rle		Display_Main_Status.rle
+//	2	5631			17885						3008
+//	3	4860			15076						2735
+//	4	4625			14188						2705
+//	5	4434			13543						2621
+//	6	4411			13411						2593
+//	7	4243*			13243						2560
+//	8	4253			13242						2572
+//	9	4340			13179*						2559*
+//	10	4323			13197						2572
+//	16	4300			13316						2685
+const REGION_MIN_PIXELS		= 7;	//	Minimum size threshold to encode flat-colored regions
+const REGIONBM_MIN_PIXELS	= 1;	//	Minimum size threshold to encode bitmap regions (includes points and lines, must = 1)
+
+const MAGIC_NUMBER			= 0x371e5453
+const SIZEOF_MAGIC_NUMBER	= 4;
+const SIZEOF_COORD			= 1;	//	Bytes per coordinate type header fields and command parameters, normal format
+const SIZEOF_COORD_LONG		= 2;	//	Bytes per coordinate type header fields and command parameters, long format
+const SIZEOF_COLOR_PAL		= 1;	//	Bytes per command Color parameter or bitmap data elements (palette mode)
+const SIZEOF_COLOR_HC		= 2;	//	Bytes per command Color parameter or bitmap data elements (high color mode), or palette
+const SIZEOF_INSTR			= 1;	//	Bytes per command instruction
+/*	Byte lengths of commands (bitmap commands: base length; data is additional Len*SIZEOF_COLOR_{PAL|HC} )  */
+const SIZEOF_NOP				= SIZEOF_INSTR;
+const SIZEOF_END				= SIZEOF_INSTR;
+const SIZEOF_POINT				= SIZEOF_INSTR + SIZEOF_COLOR_PAL + SIZEOF_COORD + SIZEOF_COORD;
+const SIZEOF_HORIZ_FLAT_LINE	= SIZEOF_INSTR + SIZEOF_COLOR_PAL + SIZEOF_COORD + SIZEOF_COORD + SIZEOF_COORD;
+const SIZEOF_VERT_FLAT_LINE		= SIZEOF_INSTR + SIZEOF_COLOR_PAL + SIZEOF_COORD + SIZEOF_COORD + SIZEOF_COORD;
+const SIZEOF_FLAT_RECT			= SIZEOF_INSTR + SIZEOF_COLOR_PAL + SIZEOF_COORD + SIZEOF_COORD + SIZEOF_COORD + SIZEOF_COORD;
+const SIZEOF_HORIZ_BITMAP_LINE	= SIZEOF_INSTR + SIZEOF_COORD + SIZEOF_COORD + SIZEOF_COORD;
+const SIZEOF_VERT_BITMAP_LINE	= SIZEOF_INSTR + SIZEOF_COORD + SIZEOF_COORD + SIZEOF_COORD;
+const SIZEOF_BITMAP_RECT		= SIZEOF_INSTR + SIZEOF_COORD + SIZEOF_COORD + SIZEOF_COORD + SIZEOF_COORD;
+
+const SIZEOF_IMAGE_HEADER		= SIZEOF_MAGIC_NUMBER + SIZEOF_COORD + SIZEOF_COORD + SIZEOF_COLOR_PAL;
+
+const CMD_NOP				= 0x00;
+const CMD_TERMINATE			= 0xff;
+const CMD_POINT				= 0x01;
+const CMD_HORIZ_FLAT_LINE	= 0x02;
+const CMD_VERT_FLAT_LINE	= 0x03;
+const CMD_FLAT_RECT			= 0x05;
+const CMD_HORIZ_BITMAP_LINE	= 0x12;
+const CMD_VERT_BITMAP_LINE	= 0x13;
+const CMD_BITMAP_RECT		= 0x15;
+const CMD_FLAG_BITMAP		= 0x10;		//	OR with command byte to make bitmap instruction
+const CMD_FLAG_HICOLOR		= 0x40;		//	OR with command byte to make high-color instruction (not yet implemented)
+
+document.getElementById('submit').addEventListener('click', processFile, true);
+document.getElementById('download').addEventListener('click', downloadOutput, true);
+document.getElementById('textsort').addEventListener('click', setOutputData, true);
+document.getElementsByName('outputtype')[0].addEventListener('click', setOutputData, true);
+document.getElementsByName('outputtype')[1].addEventListener('click', setOutputData, true);
+document.getElementsByName('outputtype')[2].addEventListener('click', setOutputData, true);
+document.getElementById('filenamebox').addEventListener('change', setOutputData, true);
+
+function processFile() {
+	var f = document.getElementById('filein').files;
+	if (f.length != 1) {
+		document.getElementById('messagebox').innerHTML = 'Please select a single image file.';
+		return;
+	}
+	fileName = f[0].name;
+
+	document.getElementById('messagebox').innerHTML = '';
+	imgArray = null;
+	var fr = new FileReader();
+	fr.onload = function () {
+		clearHTML();
+		var img = new Image();
+		img.addEventListener('error', function () {
+			document.getElementById('messagebox').innerHTML = 'Error loading or parsing image.';
+		});
+		img.addEventListener('load', function () {
+			var f = fileName.substr(0, fileName.lastIndexOf('.')) || fileName;
+			if (document.getElementsByName('outputtype')[0].checked) {
+				f += ".txt";
+			} else if (document.getElementsByName('outputtype')[1].checked) {
+				f += ".h";
+			} else {	//	if (document.getElementsByName('outputtype')[3].checked)
+				f += ".bin";
+			}
+			document.getElementById('filenamebox').value = f;
+
+			var ctx = document.getElementById('image').getContext('2d');
+			imgWidth = img.naturalWidth; imgHeight = img.naturalHeight;
+			ctx.canvas.width = imgWidth; ctx.canvas.height = imgHeight;
+			ctx.drawImage(img, 0, 0);
+			imgArray = new Uint32Array(imgWidth * imgHeight);
+			var imgD = ctx.getImageData(0, 0, imgWidth, imgHeight).data;
+			for (var i = 0; i < imgWidth * imgHeight; i++) {
+				imgArray[i] = imgD[i * 4] + 256 * (imgD[i * 4 + 1] + imgD[i * 4 + 2] * 256);
+				imgMask[i] = 1 - Math.round(imgD[i * 4 + 3] / 256);	//	Turn alpha into on/off mask
+			}
+/*			document.getElementById('output').innerHTML = 'width: ' + imgWidth
+					+ ', height: ' + imgHeight + ', data:\n\n' + Array.from(
+					imgArray, function (x) {
+						return '0x' + (x & 0x00ffffff).toString(16);
+					}).join(', ');
+*/
+			window.setTimeout(processImgArray, 20);
+		});
+		img.src = fr.result;
+	}
+	fr.readAsDataURL(f[0]);
+}
+
+function processImgArray() {
+
+	//	Count number of colors in image; index-ify the Heat Map
+	//var colors = new Map();
+	indices = new Map();
+	var total = 0;
+	for (var y = 0; y < imgHeight; y++) {
+		for (var x = 0; x < imgWidth; x++) {
+			var o = indices.get(imgArray[x + y * imgWidth]);
+			if (o === undefined) {
+				//colors[imgArray[x + y * imgWidth]] = 1;
+				//colors[imgArray[x + y * imgWidth]] = {cnt: 1, xMin: x, yMin: y, xMax: x + 1, yMax: y + 1};
+				indices.set(imgArray[x + y * imgWidth], {cnt: 1, idx: total, colr: imgArray[x + y * imgWidth], xMin: x, yMin: y, xMax: x + 1, yMax: y + 1});
+				//indices[imgArray[x + y * imgWidth]] = total;
+				total++;
+			} else {
+				//colors[imgArray[x + y * imgWidth]].cnt = colors[imgArray[x + y * imgWidth]].cnt + 1;
+				//colors[imgArray[x + y * imgWidth]].xMin = Math.min(colors[imgArray[x + y * imgWidth]].xMin, x);
+				//colors[imgArray[x + y * imgWidth]].yMin = Math.min(colors[imgArray[x + y * imgWidth]].xMin, y);
+				//colors[imgArray[x + y * imgWidth]].xMax = Math.max(colors[imgArray[x + y * imgWidth]].xMax, x + 1);
+				//colors[imgArray[x + y * imgWidth]].yMax = Math.max(colors[imgArray[x + y * imgWidth]].yMax, y + 1);
+				o.cnt = o.cnt + 1;
+				o.xMin = Math.min(o.xMin, x);
+				o.yMin = Math.min(o.yMin, y);
+				o.xMax = Math.max(o.xMax, x + 1);
+				o.yMax = Math.max(o.yMax, y + 1);
+			}
+		}
+	}
+	document.getElementById('inputmessage').innerHTML = 'Width: ' + imgWidth + ', Height: ' + imgHeight + '<br>\nNumber of colors: ' + total + '\n';
+	if (total > 256) {
+		document.getElementById('inputwarning').innerHTML = 'Warning: palette limited to 256 colors.';
+	} else {
+		document.getElementById('inputwarning').innerHTML = '';
+	}
+
+/*
+	//	Count number of connected regions of solid color, and the pixels in each
+	//
+	//	This step is not needed overall; it's more just to explore characteristics of the image.
+	//var imgMask = [];
+	for (var i = 0; i < imgWidth * imgHeight; i++) {
+		//imgMask[i] = 0;	//	Initialize to zeroes; set to one for each pixel that's been tested
+	}
+	var regions = [];
+	for (var y = 0; y < imgHeight; y++) {
+		for (var x = 0; x < imgWidth; x++) {
+			if (imgMask[x + y * imgWidth] == 0) {	//	Haven't checked pixel yet?  Test it as a region:
+				regions.push(fillRegion(x, y, imgArray[x + y * imgWidth]));
+
+				function fillRegion(fx, fy, colr) {
+					var qx = [], qy = [], count = 0;
+					var xMin, yMin, xMax, yMax;
+					if (imgMask[fx + fy * imgWidth] || imgArray[fx + fy * imgWidth] != colr
+							|| fx >= imgWidth || fx < 0 || fy >= imgHeight || fy < 0) {
+						return {'x': x, 'y': y, 'cnt': count, 'colr': colr, 'xMin': x, 'yMin': y, 'xMax': x, 'yMax': y};
+					}
+					imgMask[fx + fy * imgWidth] = 1;
+					count++; xMin = fx; yMin = fy; xMax = fx + 1; yMax = fy + 1;
+					qx.push(fx); qy.push(fy);
+					while (qx.length) {
+						fx = qx.pop(); fy = qy.pop();
+						fx++;
+						if (!imgMask[fx + fy * imgWidth] && imgArray[fx + fy * imgWidth] == colr
+								&& fx < imgWidth && fx >= 0 && fy < imgHeight && fy >= 0) {
+							imgMask[fx + fy * imgWidth] = 1;
+							count++;
+							xMin = Math.min(xMin, fx); yMin = Math.min(yMin, fy);
+							xMax = Math.max(xMax, fx + 1); yMax = Math.max(yMax, fy + 1);
+							qx.push(fx); qy.push(fy);
+						}
+						fx--; fy++;
+						if (!imgMask[fx + fy * imgWidth] && imgArray[fx + fy * imgWidth] == colr
+								&& fx < imgWidth && fx >= 0 && fy < imgHeight && fy >= 0) {
+							imgMask[fx + fy * imgWidth] = 1;
+							count++;
+							xMin = Math.min(xMin, fx); yMin = Math.min(yMin, fy);
+							xMax = Math.max(xMax, fx + 1); yMax = Math.max(yMax, fy + 1);
+							qx.push(fx); qy.push(fy);
+						}
+						fy--; fx--;
+						if (!imgMask[fx + fy * imgWidth] && imgArray[fx + fy * imgWidth] == colr
+								&& fx < imgWidth && fx >= 0 && fy < imgHeight && fy >= 0) {
+							imgMask[fx + fy * imgWidth] = 1;
+							count++;
+							xMin = Math.min(xMin, fx); yMin = Math.min(yMin, fy);
+							xMax = Math.max(xMax, fx + 1); yMax = Math.max(yMax, fy + 1);
+							qx.push(fx); qy.push(fy);
+						}
+						fx++; fy--;
+						if (!imgMask[fx + fy * imgWidth] && imgArray[fx + fy * imgWidth] == colr
+								&& fx < imgWidth && fx >= 0 && fy < imgHeight && fy >= 0) {
+							imgMask[fx + fy * imgWidth] = 1;
+							count++;
+							xMin = Math.min(xMin, fx); yMin = Math.min(yMin, fy);
+							xMax = Math.max(xMax, fx + 1); yMax = Math.max(yMax, fy + 1);
+							qx.push(fx); qy.push(fy);
+						}
+					}
+					return {'x': x, 'y': y, 'cnt': count, 'colr': colr, 'xMin': xMin, 'yMin': yMin, 'xMax': xMax, 'yMax': yMax};
+				}
+			}
+		}
+	}
+*/
+
+/*
+	//	Write out indices and pixel counts (random order because hash map)
+	var o = '';
+	total = 0;
+	for (var c in colors) {
+		o += indices.get(c) + ': ' + colors[c] + ', ';
+		total++;
+	}
+	o = 'colors: ' + total + ', counts:\n' + o.slice(0, o.length - 2);
+	o += '\n\n';
+*/
+
+	//	Replace regions array with color count array; sort by cnt
+	var sortedIndices = [];
+	for (var i of indices) {
+		sortedIndices.push(i[1]);
+	}
+	sortedIndices.sort(function(a, b) { return b.cnt - a.cnt } );
+
+/*
+	//	Write out regions and their counts
+	//	Start by sorting regions by count
+	regions.sort( function(a, b) {return b.cnt - a.cnt; } );
+	o += 'Total regions: ' + regions.length + '\n';
+	document.getElementById('inputmessage').innerHTML += 'Total regions: ' + regions.length + '';
+	for (var i = 0; i < regions.length; i++) {
+		o += '@ x: ' + regions[i].x + ', y: ' + regions[i].y
+				+ '; pixels: ' + regions[i].cnt
+				+ '; xMin: ' + regions[i].xMin + ', yMin: '+ regions[i].yMin
+				+ ', xMax: ' + regions[i].xMax + ', yMax: '+ regions[i].yMax
+				+ '; color: ' + clrToHex(imgArray[regions[i].x + regions[i].y * imgWidth])
+				+ '\n';
+	}
+	document.getElementById('output').innerHTML = o;
+*/
+
+	//	Algorithm from: https://github.com/mission-peace/interview/blob/master/src/com/interview/dynamic/MaximumRectangularSubmatrixOf1s.java
+	//	Process:
+	//	Copy imgArray; this shall be modified to remove rectangles as they are found.
+	//	For every single-color region in sortedIndices[] with cnt > REGION_MIN_PIXELS:
+	//		Find the largest rectangle in the region.  Push this to an output array.
+	//		Mask the rectangle in imgArrayCopy.
+	//		Repeat finding rectangles, until the found rectangle size is less than REGION_MIN_PIXELS.
+	//	Then for the remaining image (various colors, perforated by holes masked out by the solved rectangles),
+	//	find regions of any colors.  Push the resulting rectangles to the output array, including an array
+	//	containing the colors within that rectangle.
+	
+	var imgRects = [];
+	rectangles = [];
+	//	Copy imgArray to imgRects (with masking)
+	for (var i = 0; i < imgWidth * imgHeight; i++) {
+		imgRects[i] = imgArray[i] * (1 - imgMask[i]) - imgMask[i];
+	}
+	//	sortedIndices is sorted, so we can stop when they're smaller than REGION_MIN_PIXELS
+	for (var i = 0; i < sortedIndices.length && sortedIndices[i].cnt >= REGION_MIN_PIXELS; i++) {
+		do {
+			rectangles.push(maxRect(sortedIndices[i]));
+			
+			if (rectangles[rectangles.length - 1].cnt >= REGION_MIN_PIXELS) {
+				//	Mask off the newest rectangle so we don't infinite loop...
+				for (var y = rectangles[rectangles.length - 1].y1;
+						y < rectangles[rectangles.length - 1].y2; y++) {
+					for (var x = rectangles[rectangles.length - 1].x1;
+							x < rectangles[rectangles.length - 1].x2; x++) {
+						imgRects[x + y * imgWidth] = -1;
+					}
+				}
+			} else {
+				break;
+			}
+		} while (1);//(rectangles[rectangles.length - 1].cnt >= REGION_MIN_PIXELS);
+		rectangles.pop();	//	discard the small rect we left on, go on to new region
+	}
+
+	//	parameters: cnt, colr, xMin, yMin, xMax, yMax
+	function maxRect(r) {
+		var rowCounts = [];
+		var h;
+		var bestRect = {x1: 0, y1: 0, x2: 0, y2: 0, colr: clrToHex(r.colr), cnt: 0};
+		for (var y = r.yMin; y < r.yMax; y++) {
+			rowCounts.push(0);
+		}
+		for (var x = r.xMin; x < r.xMax; x++) {
+			for (var y = r.yMin; y < r.yMax; y++) {
+				rowCounts[y - r.yMin] = (rowCounts[y - r.yMin] + 1) * (imgRects[x + y * imgWidth] == r.colr);
+			}
+			h = maxHistogram(rowCounts);
+			if (h.cnt > bestRect.cnt) {
+				bestRect = h;
+				bestRect.x2 = x + 1;
+				bestRect.x1 = x - bestRect.x1 + 1;
+				bestRect.y1 += r.yMin;
+				bestRect.y2 += r.yMin;
+				bestRect.colr = r.colr;
+			}
+		}
+		return bestRect;
+	}
+
+	function maxHistogram(row) {
+		var stack = [];
+		var bestRect = {x1: 0, y1: 0, x2: 0, y2: 0, colr: 0, cnt: 0};
+		var height;
+		for (var y = 0; y < row.length;) {
+			if (stack.length == 0 || row[stack[stack.length - 1]] <= row[y]) {
+				stack.push(y++);
+			} else {
+				var top = stack.pop();
+				if (stack.length == 0) {
+				//	if stack is empty means everything till y has to be
+				//	greater or equal to input[top] so get area by
+				//	input[top] * y;
+					height = y;
+				} else {
+				//	if stack is not empty then everything from y-1 to input.peek() + 1
+				//	has to be greater or equal to input[top]
+				//	so area = input[top]*(y - stack.peek() - 1);
+					height = (y - stack[stack.length - 1] - 1);
+				}
+				if (row[top] * height > bestRect.cnt) {	//	Save new best values
+					bestRect.cnt = row[top] * height;
+					bestRect.x1 = row[top];		//	Width (fixed up to first coordinate outside)
+					bestRect.y1 = y - height;	//	Y start
+					bestRect.y2 = y;			//	Y end
+				}
+			}
+		}
+		//	Clean out what's left on the stack, in case it may be better -- same process
+		while (stack.length > 0) {
+			var top = stack.pop();
+			if (stack.length == 0) {
+				height = y;
+			} else {
+				height = (y - stack[stack.length - 1] - 1);
+			}
+			if (row[top] * height > bestRect.cnt) {
+				bestRect.cnt = row[top] * height;
+				bestRect.x1 = row[top];
+				bestRect.y1 = y - height;
+				bestRect.y2 = y;
+			}
+		}
+		return bestRect;
+	}
+
+	//	Find bitmap regions
+	//	First, invert imgRects masking, so solved areas are color 0 and unsolved areas are 1; then solve for color 1
+	for (var y = 0; y < imgHeight; y++) {
+		for (var x = 0; x < imgWidth; x++) {
+			imgRects[x + y * imgWidth] = ( imgRects[x + y * imgWidth] != -1 ) * 1;
+		}
+	}
+
+	rectangleBMs = [];
+	do {
+		rectangleBMs.push(maxRect({colr: 1, xMin: 0, yMin: 0, xMax: imgWidth, yMax: imgHeight}));
+		var topRecBm = rectangleBMs[rectangleBMs.length - 1];
+		topRecBm.data = []; topRecBm.indexed = [];
+		
+		if (topRecBm.cnt >= REGIONBM_MIN_PIXELS) {
+			//	Mask off the newest rectangle so we don't infinite loop...
+			for (var x = topRecBm.x1; x < topRecBm.x2; x++) {
+				for (var y = topRecBm.y1; y < topRecBm.y2; y++) {
+					imgRects[x + y * imgWidth] = 2;
+					topRecBm.data.push(clrToHex(imgArray[x + y * imgWidth]));
+					topRecBm.indexed.push(indices.get(imgArray[x + y * imgWidth]).idx);
+				}
+			}
+		} else {
+			break;
+		}
+	} while (1);//(rectangleBMs[rectangleBMs.length - 1].cnt >= REGIONBM_MIN_PIXELS);
+	rectangleBMs.pop();	//	discard the empty rect we left on
+
+/*
+	//	Plot the colors in order; generate a list first
+	var i = 360 / (total - 1); // distribute the colors evenly on the hue range
+	for (var x = 0; x < total; x++) {
+		palette.push(hsvToRgb(i * x, Math.random() * 70 + 30, Math.random() * 100));
+	}
+*/
+	var palette = []; // hold the generated colors
+
+	//indices['-1'] = {idx: '-1'}; palette['-1'] = 0x00ff00ff;
+	var remapped = new ImageData(imgWidth, imgHeight);
+	var ctx = document.getElementById('heatmap').getContext('2d');
+	ctx.canvas.width = imgWidth; ctx.canvas.height = imgHeight;
+	//
+	palette[0] = window.getComputedStyle(document.getElementsByClassName('rect')[0]
+			).getPropertyValue('color').match(/^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/);
+	palette[2] = window.getComputedStyle(document.getElementsByClassName('rectbm')[0]
+			).getPropertyValue('color').match(/^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/);
+	palette[0].shift(); palette[2].shift();
+	palette[1] = [0xff, 0xff, 0xff];
+	//palette[0] = [0xd0, 0x00, 0xd0]; palette[2] = [0x48, 0xc0, 0x30];
+	for (var y = 0; y < imgHeight; y++) {
+		for (var x = 0; x < imgWidth; x++) {
+			var c = palette[imgRects[x + y * imgWidth] * (1 - imgMask[x + y * imgWidth]) + imgMask[x + y * imgWidth] ];
+			remapped.data[(x + y * imgWidth) * 4] = c[0];
+			remapped.data[(x + y * imgWidth) * 4 + 1] = c[1];
+			remapped.data[(x + y * imgWidth) * 4 + 2] = c[2];
+			remapped.data[(x + y * imgWidth) * 4 + 3] = 255 * (1 - imgMask[x + y * imgWidth]);
+		}
+	}
+	ctx.putImageData(remapped, 0, 0);
+
+	window.setTimeout(setOutputData, 20);
+}
+
+function clrToHex(c) {
+	//	Byte swap because endianness
+	c = ((c & 0xff0000) >> 16) | (c & 0x00ff00) | ((c & 0x0000ff) << 16);
+	return '#' + ('000000' + (c & 0x00ffffff).toString(16)).substr(-6);
+}
+
+function hexToClr(h) {
+	//	Assumes HTML/CSS format '#xxxxxx'
+	var c = Number.parseInt(h.slice(1), 16);
+	//	Byte swap because endianness
+	return ((c & 0xff0000) >> 16) | (c & 0x00ff00) | ((c & 0x0000ff) << 16);
+}
+
+function clrTo565(c) {
+	//	Byte swap because endianness
+	c = ((c & 0xff0000) >> 16) | (c & 0x00ff00) | ((c & 0x0000ff) << 16);
+	c = ((c >> 3) & 0x1f) | (((c >> 10) & 0x3f) << 5) | (((c >> 19) & 0x1f) << 11);
+	return '0x' + ('0000' + (c & 0xffff).toString(16)).substr(-4);
+}
+
+function byteToHex(b) {
+	return '0x' + ('00' + (b & 0xff).toString(16)).substr(-2);
+}
+
+/**
+ *	HSV to RGB color conversion
+ *
+ *	H runs from 0 to 360 degrees
+ *	S and V run from 0 to 100
+ *
+ *	Ported from the excellent java algorithm by Eugene Vishnevsky at:
+ *	http://www.cs.rit.edu/~ncs/color/t_convert.html
+ */
+function hsvToRgb(h, s, v) {
+	var r, g, b;
+	var i;
+	var f, p, q, t;
+
+	// Make sure our arguments stay in-range
+	h = Math.max(0, Math.min(360, h));
+	s = Math.max(0, Math.min(100, s));
+	v = Math.max(0, Math.min(100, v));
+
+	// We accept saturation and value arguments from 0 to 100 because that's
+	// how Photoshop represents those values. Internally, however, the
+	// saturation and value are calculated from a range of 0 to 1. We make
+	// That conversion here.
+	s /= 100;
+	v /= 100;
+
+	if(s == 0) {
+		// Achromatic (grey)
+		r = g = b = v;
+		return [
+			Math.round(r * 255), 
+			Math.round(g * 255), 
+			Math.round(b * 255)
+		];
+	}
+
+	h /= 60; // sector 0 to 5
+	i = Math.floor(h);
+	f = h - i; // fractional part of h
+	p = v * (1 - s);
+	q = v * (1 - s * f);
+	t = v * (1 - s * (1 - f));
+
+	switch(i) {
+		case 0:
+			r = v;
+			g = t;
+			b = p;
+			break;
+
+		case 1:
+			r = q;
+			g = v;
+			b = p;
+			break;
+
+		case 2:
+			r = p;
+			g = v;
+			b = t;
+			break;
+
+		case 3:
+			r = p;
+			g = q;
+			b = v;
+			break;
+
+		case 4:
+			r = t;
+			g = p;
+			b = v;
+			break;
+
+		default: // case 5:
+			r = v;
+			g = p;
+			b = q;
+	}
+
+	return [
+		Math.round(r * 255), 
+		Math.round(g * 255), 
+		Math.round(b * 255)
+	];
+}
+
+function setOutputData() {
+	var box = '';
+	var bytes = 0;
+
+	if (!imgArray || imgArray.length == 0) {
+		document.getElementById('outputmessage').innerHTML = '';
+		return;
+	}
+
+	var f = document.getElementById('filenamebox').value;
+	f = f.substr(0, f.lastIndexOf('.')) || f;
+	if (document.getElementsByName('outputtype')[0].checked) {
+		f += ".txt";
+	} else if (document.getElementsByName('outputtype')[1].checked) {
+		f += ".h";
+	} else {	//	if (document.getElementsByName('outputtype')[3].checked)
+		f += ".bin";
+	}
+	document.getElementById('filenamebox').value = f;
+
+	if (document.getElementById('textsort').checked) {	//	Sort by pixels (else sort by colors)
+		rectangles.sort(function(a, b) { return b.cnt - a.cnt } );
+	} else {
+		rectangles.sort(function(a, b) { return b.colr - a.colr } );
+	}
+
+	var c = countRegions();
+	//	Returns:
+	//	c.fr		Flat Rectangles
+	//	c.hfl		Horizontal Flat Lines
+	//	c.vfl		Vertical Flat Lines
+	//	c.br		Bitmap Rectangles
+	//	c.brLen			Total BR Data Length
+	//	c.hbl		Horizontal Bitmap Lines
+	//	c.hblLen		Total HBL Data Length
+	//	c.vbl		Vertical Bitmap Lines
+	//	c.vblLen		Total VBL Data Length
+	//	c.p			Points
+
+	bytes =
+			SIZEOF_IMAGE_HEADER
+			+ indices.size * SIZEOF_COLOR_HC
+			+ c.p	* SIZEOF_POINT
+			+ c.hfl	* SIZEOF_HORIZ_FLAT_LINE
+			+ c.vfl	* SIZEOF_VERT_FLAT_LINE
+			+ c.fr	* SIZEOF_FLAT_RECT
+			+ c.hbl	* SIZEOF_HORIZ_BITMAP_LINE	+ c.hblLen	* SIZEOF_COLOR_PAL
+			+ c.vbl	* SIZEOF_VERT_BITMAP_LINE	+ c.vblLen	* SIZEOF_COLOR_PAL
+			+ c.br	* SIZEOF_BITMAP_RECT		+ c.brLen	* SIZEOF_COLOR_PAL
+			+ SIZEOF_END;
+
+/*
+ *
+ * Verbose (Text)
+ *
+ */
+
+	//	Check which kind of output
+	if (document.getElementsByName('outputtype')[0].checked) {
+
+		box = 'Header: 0x371e5453\n'
+		box += 'Palette: ' + indices.size + ' entries\n';
+		o = '';
+		for (var i of indices) {
+			box += clrToHex(i[1].colr) + ', ';
+		}
+		box = box.slice(0, box.length - 2) + '\n\n';
+		
+		if (c.fr) {
+			box += 'Flat Rectangles: ' + c.fr + '\n';
+			for (var i = 0; i < rectangles.length; i++) {
+				//	Rectangles -- avoid lines (width or height == 1)
+				if (rectangles[i].x2 > rectangles[i].x1 + 1 && rectangles[i].y2 > rectangles[i].y1 + 1) {
+					box += 'x: ' + rectangles[i].x1 + ', y: ' + rectangles[i].y1
+							+ ', width: ' + (rectangles[i].x2 - rectangles[i].x1)
+							+ ', height: ' + (rectangles[i].y2 - rectangles[i].y1)
+							+ ', index: ' + indices.get(rectangles[i].colr).idx + '\n';
+				}
+			}
+		}
+		if (c.hfl) {
+			box += '\nHorizontal Flat Lines: ' + c.hfl + '\n';
+			for (var i = 0; i < rectangles.length; i++) {
+				//	Horizontal lines (height == 1)
+				if (rectangles[i].y2 == rectangles[i].y1 + 1) {
+					box += 'x: ' + rectangles[i].x1 + ', y: ' + rectangles[i].y1
+							+ ', len: ' + (rectangles[i].x2 - rectangles[i].x1)
+							+ ', index: ' + indices.get(rectangles[i].colr).idx + '\n';
+				}
+			}
+		}
+		if (c.vfl) {
+			box += '\nVertical Flat Lines: ' + c.vfl + '\n';
+			for (var i = 0; i < rectangles.length; i++) {
+				//	Vertical lines (width == 1)
+				if (rectangles[i].x2 == rectangles[i].x1 + 1) {
+					box += 'x: ' + rectangles[i].x1 + ', y: ' + rectangles[i].y1
+							+ ', len: ' + (rectangles[i].y2 - rectangles[i].y1)
+							+ ', index: ' + indices.get(rectangles[i].colr).idx + '\n';
+				}
+			}
+		}
+		if (c.br) {
+			box += '\nBitmap Rectangles: ' + c.br + '\n';
+			for (var i = 0; i < rectangleBMs.length; i++) {
+				//	Rectangles -- avoid lines (width or height == 1)
+				if (rectangleBMs[i].x2 > rectangleBMs[i].x1 + 1 && rectangleBMs[i].y2 > rectangleBMs[i].y1 + 1) {
+					box += 'x: ' + rectangleBMs[i].x1 + ', y: ' + rectangleBMs[i].y1
+							+ ', width: ' + (rectangleBMs[i].x2 - rectangleBMs[i].x1)
+							+ ', height: ' + (rectangleBMs[i].y2 - rectangleBMs[i].y1)
+							+ ', data:\n\t' + rectangleBMs[i].indexed.join(', ') + '\n';
+				}
+			}
+		}
+		if (c.hbl) {
+			box += '\nHorizontal Bitmap Lines: ' + c.hbl + '\n';
+			for (var i = 0; i < rectangleBMs.length; i++) {
+				//	Check for lines (height == 1, len > 1)
+				if (rectangleBMs[i].x2 > rectangleBMs[i].x1 + 1 && rectangleBMs[i].y2 == rectangleBMs[i].y1 + 1) {
+					box += 'x: ' + rectangleBMs[i].x1 + ', y: ' + rectangleBMs[i].y1
+							+ ', len: ' + (rectangleBMs[i].x2 - rectangleBMs[i].x1)
+							+ ', data:\n\t' + rectangleBMs[i].indexed.join(', ') + '\n';
+				}
+			}
+		}
+		if (c.vbl) {
+			box += '\nVertical Bitmap Lines: ' + c.vbl + '\n';
+			for (var i = 0; i < rectangleBMs.length; i++) {
+				//	Check for lines (width == 1, len > 1)
+				if (rectangleBMs[i].x2 == rectangleBMs[i].x1 + 1 && rectangleBMs[i].y2 > rectangleBMs[i].y1 + 1) {
+					box += 'x: ' + rectangleBMs[i].x1 + ', y: ' + rectangleBMs[i].y1
+							+ ', len: ' + (rectangleBMs[i].y2 - rectangleBMs[i].y1)
+							+ ', data:\n\t' + rectangleBMs[i].indexed.join(', ') + '\n';
+				}
+			}
+		}
+		if (c.p) {
+			box += '\nPoints: ' + c.p + '\n';
+			for (var i = 0; i < rectangleBMs.length; i++) {
+				//	Check for points (width and height == 1)
+				if (rectangleBMs[i].x2 == rectangleBMs[i].x1 + 1 && rectangleBMs[i].y2 == rectangleBMs[i].y1 + 1) {
+					box += 'x: ' + rectangleBMs[i].x1 + ', y: ' + rectangleBMs[i].y1
+							+ ', index: ' + rectangleBMs[i].indexed[0] + '\n';
+				}
+			}
+		}
+
+/*
+ *
+ * C Header
+ *
+ */
+ 
+	} else if (document.getElementsByName('outputtype')[1].checked) {
+
+		var defName = fileName.substr(0, fileName.lastIndexOf('.')) || fileName;
+		//	Replace non-identifier characters (sorry Unicode users)
+		defName = defName.replace(/^[^a-zA-Z_]/, '_').replace(/[^A-Za-z0-9_]/g, '_').toUpperCase();
+
+		var palSize = indices.size, palComment = 'Number of colors';
+		if (palSize >= 256) {
+			palComment += ' (0 --> 256 colors)'
+			if (palSize > 256) {
+				palComment += '; WARNING: original has too many colors, truncating.'
+			}
+			palSize = 256;
+		}
+		box =	  '/*\n'
+				+ ' *  ST7735 Command Set Encoded Image\n'
+				+ ' *  Encoder by Tim Williams, 2018-12-29\n'
+				+ ' *  Original: ' + fileName + '\n'
+				+ ' *  Encoded on: ' + new Date() + '\n'
+				+ ' */\n'
+				+ '\n'
+				+ '#ifndef ' + defName + '_H_INCLUDED\n'
+				+ '#define ' + defName + '_H_INCLUDED\n'
+				+ '\n'
+				+ '#define ' + defName + '_MAGIC_NUMBER\t0x' + (MAGIC_NUMBER).toString(16) + '\n'
+				+ '#define ' + defName + '_WIDTH\t\t' + imgWidth + '\n'
+				+ '#define ' + defName + '_HEIGHT\t\t' + imgHeight + '\n'
+				+ '#define ' + defName + '_CMD_LEN\t\t'
+						+ (bytes - SIZEOF_IMAGE_HEADER - indices.size * SIZEOF_COLOR_HC)
+						+ '\t/*  Number of command bytes  */\n'
+				+ '#define ' + defName + '_PALETTE_LEN\t\t' + Math.min(indices.size, 256) * SIZEOF_COLOR_HC
+						+ '\t/*  ' + palComment + '  */\n'
+				+ '#define ' + defName + '_TOTAL_LEN\t\t' + (Math.min(indices.size, 256) * SIZEOF_COLOR_HC
+				+ 1 + (bytes - SIZEOF_IMAGE_HEADER - indices.size * SIZEOF_COLOR_HC))
+						+ '\t/*  Total array size  */\n'
+				+ '\n'
+				+ '#define ' + defName + '_PAL\t';
+		var j = 0;
+		for (var i of indices) {
+			if ((j++) % 4 == 0) {
+				box += '\t\\\n\t';
+			}
+			box += byteToHex(clrTo565(i[1].colr)) + ', ' + byteToHex(clrTo565(i[1].colr) >> 8) + ',\t';
+			if (j >= palSize) {
+				break;
+			}
+		}
+		box = box.slice(0, box.length - 2) + '\n\n';
+		
+		box += '#define ' + defName + '_CMDS\t';
+		//	Check rectangleBMs data to limit index value
+		for (var i = 0; i < rectangleBMs.length; i++) {
+			for (var k = 0; k < rectangleBMs[i].indexed.length; k++) {
+				rectangleBMs[i].indexed[k] &= 0xff;
+			}
+		}
+		if (c.fr) {
+			for (var i = 0; i < rectangles.length; i++) {
+				//	Rectangles -- avoid lines (width or height == 1)
+				if (rectangles[i].x2 > rectangles[i].x1 + 1 && rectangles[i].y2 > rectangles[i].y1 + 1) {
+					box += '\t\\\n\t' + byteToHex(CMD_FLAT_RECT)
+							+ ', ' + (indices.get(rectangles[i].colr).idx & 0xff)
+							+ ', ' + rectangles[i].x1 + ', ' + rectangles[i].y1
+							+ ', ' + (rectangles[i].x2 - rectangles[i].x1)
+							+ ', ' + (rectangles[i].y2 - rectangles[i].y1) + ',\t';
+				}
+			}
+		}
+		if (c.hfl) {
+			for (var i = 0; i < rectangles.length; i++) {
+				//	Horizontal lines (width == 1)
+				if (rectangles[i].y2 == rectangles[i].y1 + 1) {
+					box += '\t\\\n\t' + byteToHex(CMD_HORIZ_FLAT_LINE)
+							+ ', ' + (indices.get(rectangles[i].colr).idx & 0xff)
+							+ ', ' + rectangles[i].x1 + ', ' + rectangles[i].y1
+							+ ', ' + (rectangles[i].x2 - rectangles[i].x1) + ',\t';
+				}
+			}
+		}
+		if (c.vfl) {
+			for (var i = 0; i < rectangles.length; i++) {
+				//	Vertical lines (width == 1)
+				if (rectangles[i].x2 == rectangles[i].x1 + 1) {
+					box += '\t\\\n\t' + byteToHex(CMD_VERT_FLAT_LINE)
+							+ ', ' + (indices.get(rectangles[i].colr).idx & 0xff)
+							+ ', ' + rectangles[i].x1 + ', ' + rectangles[i].y1
+							+ ', ' + (rectangles[i].y2 - rectangles[i].y1) + ',\t';
+				}
+			}
+		}
+		if (c.br) {
+			for (var i = 0; i < rectangleBMs.length; i++) {
+				//	Bitmap rectangleBMs -- avoid lines (width or height == 1)
+				if (rectangleBMs[i].x2 > rectangleBMs[i].x1 + 1 && rectangleBMs[i].y2 > rectangleBMs[i].y1 + 1) {
+					box += '\t\\\n\t' + byteToHex(CMD_BITMAP_RECT)
+							+ ', ' + rectangleBMs[i].x1 + ', ' + rectangleBMs[i].y1
+							+ ', ' + (rectangleBMs[i].x2 - rectangleBMs[i].x1)
+							+ ', ' + (rectangleBMs[i].y2 - rectangleBMs[i].y1)
+							+ ',\t\t\\\n\t\t' + rectangleBMs[i].indexed.join(', ') + ',\t';
+				}
+			}
+		}
+		
+		if (c.hbl) {
+			for (var i = 0; i < rectangleBMs.length; i++) {
+				//	Horizontal Bitmap Lines (height == 1, len > 1)
+				if (rectangleBMs[i].x2 > rectangleBMs[i].x1 + 1 && rectangleBMs[i].y2 == rectangleBMs[i].y1 + 1) {
+					box += '\t\\\n\t' + byteToHex(CMD_HORIZ_BITMAP_LINE)
+							+ ', ' + rectangleBMs[i].x1 + ', ' + rectangleBMs[i].y1
+							+ ', ' + (rectangleBMs[i].x2 - rectangleBMs[i].x1)
+							+ ',\t\t\\\n\t\t' + rectangleBMs[i].indexed.join(', ') + ',\t';
+				}
+			}
+		}
+		if (c.vbl) {
+			for (var i = 0; i < rectangleBMs.length; i++) {
+				//	Vertical Bitmap Lines (width == 1, len > 1)
+				if (rectangleBMs[i].x2 == rectangleBMs[i].x1 + 1 && rectangleBMs[i].y2 > rectangleBMs[i].y1 + 1) {
+					box += '\t\\\n\t' + byteToHex(CMD_VERT_BITMAP_LINE)
+							+ ', ' + rectangleBMs[i].x1 + ', ' + rectangleBMs[i].y1
+							+ ', ' + (rectangleBMs[i].y2 - rectangleBMs[i].y1)
+							+ ',\t\t\\\n\t\t' + rectangleBMs[i].indexed.join(', ') + ',\t';
+				}
+			}
+		}
+		if (c.p) {
+			for (var i = 0; i < rectangleBMs.length; i++) {
+				//	Check for points (width and height == 1)
+				if (rectangleBMs[i].x2 == rectangleBMs[i].x1 + 1 && rectangleBMs[i].y2 == rectangleBMs[i].y1 + 1) {
+					box += '\t\\\n\t' + byteToHex(CMD_POINT)
+							+ ', ' + rectangleBMs[i].indexed[0]
+							+ ', ' + rectangleBMs[i].x1 + ', ' + rectangleBMs[i].y1 + ',\t';
+				}
+			}
+		}
+		box += '\t\\\n\t' + byteToHex(CMD_TERMINATE);
+		box += '\n\n#endif  //  ' + defName + '_H_INCLUDED\n';
+		//	HTML-dodging hack... remember to put these back before saving to file!
+		box = box.replace(/\<+/g, '&lt;').replace(/\>+/g, '&gt;');
+
+/*
+ *
+ * Binary
+ *
+ */
+
+	} else {	//	if (document.getElementsByName('outputtype')[2].checked) {
+
+		box = 'Binary Size: ' + bytes + '\n';
+
+		var i = 0;
+		binaryOutput = new Uint8Array(bytes);
+		binaryOutput[i++] = (MAGIC_NUMBER >> 0) & 0xff;
+		binaryOutput[i++] = (MAGIC_NUMBER >> 8) & 0xff;	//	'ST'
+		binaryOutput[i++] = (MAGIC_NUMBER >> 16) & 0xff;
+		binaryOutput[i++] = (MAGIC_NUMBER >> 24) & 0xff;	//	7735
+		
+	}
+
+	document.getElementById('output').innerHTML = box;
+	document.getElementById('download').disabled = false;
+
+}
+
+function countRegions() {
+
+	var tally = '';
+	var countFR = 0, countHFL = 0, countVFL = 0;
+	var countBR = 0, countHBL = 0, countVBL = 0, countP = 0;
+	var lenBR = 0, lenHBL = 0, lenVBL = 0;
+
+	for (var i = 0; i < rectangles.length; i++) {
+		//	Avoid lines (width or height == 1)
+		if (rectangles[i].x2 > rectangles[i].x1 + 1 && rectangles[i].y2 > rectangles[i].y1 + 1) {
+			countFR++;
+		}
+		//	Check for lines (height == 1)
+		if (rectangles[i].y2 == rectangles[i].y1 + 1) {
+			countHFL++;
+		}
+		//	Check for lines (width == 1)
+		if (rectangles[i].x2 == rectangles[i].x1 + 1) {
+			countVFL++;
+		}
+	}
+
+	for (var i = 0; i < rectangleBMs.length; i++) {
+		//	Avoid lines (width or height == 1)
+		if (rectangleBMs[i].x2 > rectangleBMs[i].x1 + 1 && rectangleBMs[i].y2 > rectangleBMs[i].y1 + 1) {
+			countBR++;
+			lenBR += rectangleBMs[i].data.length;
+		}
+		//	Check for lines (height == 1, len > 1)
+		if (rectangleBMs[i].x2 > rectangleBMs[i].x1 + 1 && rectangleBMs[i].y2 == rectangleBMs[i].y1 + 1) {
+			countHBL++;
+			lenHBL += rectangleBMs[i].data.length;
+		}
+		//	Check for lines (width == 1, len > 1)
+		if (rectangleBMs[i].x2 == rectangleBMs[i].x1 + 1 && rectangleBMs[i].y2 > rectangleBMs[i].y1 + 1) {
+			countVBL++;
+			lenVBL += rectangleBMs[i].data.length;
+		}
+		//	Check for points (width and height == 1)
+		if (rectangleBMs[i].x2 == rectangleBMs[i].x1 + 1 && rectangleBMs[i].y2 == rectangleBMs[i].y1 + 1) {
+			countP++;
+		}
+	}
+
+	if (countFR) {
+		tally += 'Flat Rectangles: ' + countFR + '<br>\n';
+	}
+	if (countHFL) {
+		tally += '\nHorizontal Flat Lines: ' + countHFL + '<br>\n';
+	}
+	if (countVFL) {
+		tally += '\nVertical Flat Lines: ' + countVFL + '<br>\n';
+	}
+	if (countBR) {
+		tally += '\nBitmap Rectangles: ' + countBR + '<br>\n';
+	}
+	if (countHBL) {
+		tally += '\nHorizontal Bitmap Lines: ' + countHBL + '<br>\n';
+	}
+	if (countVBL) {
+		tally += 'Vertical Bitmap Lines: ' + countVBL + '<br>\n';
+	}
+	if (lenBR + lenHBL + lenVBL) {
+		tally += 'Bitmap Pixels: ' + (lenBR + lenHBL + lenVBL) + '<br>\n';
+	}
+	if (countP) {
+		tally += 'Points: ' + countP + '<br>\n';
+	}
+
+	tally.slice(0, tally.length - 5);
+	document.getElementById('outputmessage').innerHTML = tally;
+	return {fr: countFR, hfl: countHFL, vfl: countVFL, br: countBR, brLen: lenBR,
+			hbl: countHBL, hblLen: lenHBL, vbl: countVBL, vblLen: lenVBL, p: countP};
+}
+
+function downloadOutput() {
+	var f = document.getElementById('filenamebox').value;
+
+	if (document.getElementsByName('outputtype')[2].checked) {	//	Binary
+		saveAs(new Blob([binaryOutput], {type: 'application/octet-stream'}), f);
+	} else {	//	Text, Header
+		var box = document.getElementById('output').innerHTML;
+		box.replace(/&gt;/g, '>').replace(/&lt;/g, '<');
+		saveAs(new Blob([box], {type: 'text/plain;charset=utf-8'}), f);
+	}
+}
+
+function clearHTML() {
+	document.getElementById('messagebox').innerHTML = '';
+	document.getElementById('inputmessage').innerHTML = '';
+	document.getElementById('inputwarning').innerHTML = '';
+	document.getElementById('outputmessage').innerHTML = '';
+	var canv = document.getElementById('image');
+	canv.width = 100; canv.height = 100;
+	canv.getContext('2d').clearRect(0, 0, canv.width, canv.height);
+	canv = document.getElementById('heatmap');
+	canv.width = 100; canv.height = 100;
+	canv.getContext('2d').clearRect(0, 0, canv.width, canv.height);
+	document.getElementById('download').disabled = true;
+	imgArray = []; imgMask = []; imgWidth = 0; imgHeight = 0;
+	indices = new Map(); rectangles = []; rectangleBMs = [];
+	binaryOutput = [];
+}
+
+	--></script>
+  </body>
+</html>
