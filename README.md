@@ -29,7 +29,9 @@ The big step that brought on this repo is the drawImage() function.  Like the in
 
 So, I embarked on writing an encoder, which took about two weeks to complete.  Run it here:
 https://htmlpreview.github.io/?https://github.com/T3sl4co1l/st7735_gfx/blob/master/compr.html
+
 This page contains the JS encoder, an HTML interface, and documents the format.  Output is verbose (English) text, and C header output.  TODO: the binary output doesn't actually download anything right now.  File download function is borrowed from: https://github.com/eligrey/FileSaver.js/
+
 A greedy algorithm is used, and has compression ratio comparable to Windows RLE (an example, and its H output, is provided here).  I'm quite satisfied with the results!
 
 A number of optimizations could be made, give or take towards file size, or draw speed (which is dominated by the amount of SPI traffic, especially setRegion commands), but aren't going to be easy to patch into the middle of the encoder mega-function.
