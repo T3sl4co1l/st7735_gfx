@@ -23,7 +23,7 @@ All (currently known?) display registers and bits have been named.  This is form
 
 initLcd() is the initializer entry point.  ST7735_displayInit() could be folded into it since it isn't used elsewhere and I'm not working with other display types at this time -- but if you are, add them here.  The Adafruit libraries show several supported variants, which should be easy to plug in with few changes.
 
-There are no display-read functions implemented (except for sendByte), because my implementation ran out of pins, and because strapping SDA (bidirectional) to MOSI /and/ MISO is a bit of a juggle.  Since VRAM is much larger than SRAM on most small MCUs (such as AVRs), this would be a convenient (if somewhat slow) way to implement alpha blending, say, or anything else that depends on a frame buffer.
+There are no display-read functions implemented (except for sendByte), because my implementation ran out of pins, and because strapping SDA (bidirectional) to MOSI *and* MISO is a bit of a juggle.  Since VRAM is much larger than SRAM on most small MCUs (such as AVRs), this would be a convenient (if somewhat slow) way to implement alpha blending, say, or anything else that depends on a frame buffer.
 
 The big step that brought on this repo is the drawImage() function.  Like the init system, this processes a PROGMEM array as a series of variable-length commands.  The format is like an RLE (run length encoded) image, but rather than a linear (scanline or string based) code, it's 2-dimensional -- ultimately because the ST7735 only has one set-region command and no RAM address control, so it's optimal to write blocks at a time.
 
