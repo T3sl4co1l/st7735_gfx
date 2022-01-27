@@ -105,9 +105,9 @@ input[type=file] {
 	  <h2>Output Data</h2>
 	  Format:
 	  <div>
-		<input type="radio" name="outputtype" checked>Verbose (Text)<br>
-		<input type="radio" name="outputtype">C Header<br>
-		<input type="radio" name="outputtype">Binary
+		<label><input type="radio" name="outputtype" checked>Verbose (Text)</label><br>
+		<label><input type="radio" name="outputtype">C Header</label><br>
+		<label><input type="radio" name="outputtype">Binary</label>
 	  </div>
 	  <input type="checkbox" id="textsort">Sort flats by size (default: by color)<br>
 	  File name: <input type="text" id="filenamebox">
@@ -197,7 +197,7 @@ var fileName = '';
 const REGION_MIN_PIXELS		= 7;	//	Minimum size threshold to encode flat-colored regions
 const REGIONBM_MIN_PIXELS	= 1;	//	Minimum size threshold to encode bitmap regions (includes points and lines, must = 1)
 
-const MAGIC_NUMBER			= 0x371e5453
+const MAGIC_NUMBER			= 0x371e5453;
 const SIZEOF_MAGIC_NUMBER	= 4;
 const SIZEOF_COORD			= 1;	//	Bytes per coordinate type header fields and command parameters, normal format
 const SIZEOF_COORD_LONG		= 2;	//	Bytes per coordinate type header fields and command parameters, long format
@@ -503,14 +503,14 @@ function processImgArray() {
 			} else {
 				var top = stack.pop();
 				if (stack.length == 0) {
-				//	if stack is empty means everything till y has to be
-				//	greater or equal to input[top] so get area by
-				//	input[top] * y;
+					//	if stack is empty means everything till y has to be
+					//	greater or equal to input[top] so get area by
+					//	input[top] * y;
 					height = y;
 				} else {
-				//	if stack is not empty then everything from y-1 to input.peek() + 1
-				//	has to be greater or equal to input[top]
-				//	so area = input[top]*(y - stack.peek() - 1);
+					//	if stack is not empty then everything from y-1 to input.peek() + 1
+					//	has to be greater or equal to input[top]
+					//	so area = input[top]*(y - stack.peek() - 1);
 					height = (y - stack[stack.length - 1] - 1);
 				}
 				if (row[top] * height > bestRect.cnt) {	//	Save new best values
@@ -873,7 +873,7 @@ function setOutputData() {
 		//	Replace non-identifier characters (sorry Unicode users)
 		defName = defName.replace(/^[^a-zA-Z_]/, '_').replace(/[^A-Za-z0-9_]/g, '_').toUpperCase();
 
-		var palSize = indices.size, palComment = 'Number of colors';
+		var palSize = indices.size, palComment = 'Number of bytes (2 * colors)';
 		if (palSize >= 256) {
 			palComment += ' (0 --> 256 colors)'
 			if (palSize > 256) {
